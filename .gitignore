@@ -1,0 +1,28 @@
+# JS
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+
+# Miscellaneous
+*.log
+*.pot
+*.tmp
+*.bak
+*.swp
+*~
