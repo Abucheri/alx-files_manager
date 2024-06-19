@@ -20,7 +20,7 @@ class FilesController {
     const {
       name,
       type,
-      parentId = 0,
+      parentId = '0',
       isPublic = false,
       data,
     } = req.body;
@@ -38,8 +38,11 @@ class FilesController {
       return res.status(400).json({ error: 'Missing data' });
     }
 
-    if (parentId !== 0) {
-      const parentFile = await dbClient.findFile({ _id: ObjectId(parentId) });
+    if (parentId !== '0') {
+      const parentFile = await dbClient.db.collection('files').findOne({
+        _id: ObjectId(parentId),
+        userId: ObjectId(userId),
+      });
       if (!parentFile) {
         return res.status(400).json({ error: 'Parent not found' });
       }
@@ -62,12 +65,12 @@ class FilesController {
       try {
         const result = await dbClient.db.collection('files').insertOne(newFolder);
         return res.status(201).json({
-          id: result.insertedId,
-          userId,
+          id: result.insertedId.toString(),
+          userId: userId.toString(),
           name,
           type,
           isPublic,
-          parentId,
+          parentId: parentId === '0' ? 0 : parentId, // Ensure parentId is a number if '0'
         });
       } catch (error) {
         console.error('Error creating folder:', error);
@@ -98,12 +101,12 @@ class FilesController {
 
       const result = await dbClient.db.collection('files').insertOne(newFile);
       return res.status(201).json({
-        id: result.insertedId,
-        userId,
+        id: result.insertedId.toString(),
+        userId: userId.toString(),
         name,
         type,
         isPublic,
-        parentId,
+        parentId: parentId === '0' ? 0 : parentId, // Ensure parentId is a number if '0'
       });
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -129,12 +132,12 @@ class FilesController {
       if (!fileDocument) return res.status(404).json({ error: 'File not found' });
 
       return res.json({
-        id: fileDocument._id,
-        userId: fileDocument.userId,
+        id: fileDocument._id.toString(),
+        userId: fileDocument.userId.toString(),
         name: fileDocument.name,
         type: fileDocument.type,
         isPublic: fileDocument.isPublic,
-        parentId: fileDocument.parentId,
+        parentId: fileDocument.parentId === '0' ? 0 : fileDocument.parentId, // Ensure parentId is a number if '0'
       });
     } catch (error) {
       console.error('Error fetching file:', error);
@@ -167,12 +170,12 @@ class FilesController {
       const filesArray = await filesCursor.toArray();
 
       const formattedFiles = filesArray.map((file) => ({
-        id: file._id,
-        userId: file.userId,
+        id: file._id.toString(),
+        userId: file.userId.toString(),
         name: file.name,
         type: file.type,
         isPublic: file.isPublic,
-        parentId: file.parentId,
+        parentId: file.parentId === '0' ? 0 : file.parentId, // Ensure parentId is a number if '0'
       }));
 
       return res.json(formattedFiles);
