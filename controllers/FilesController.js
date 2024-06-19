@@ -292,11 +292,14 @@ class FilesController {
       const file = await dbClient.db.collection('files').findOne({ _id: ObjectId(fileId) });
 
       if (!file) {
+        console.error(`File not found for ID: ${fileId}`);
         return res.status(404).json({ error: 'Not found' });
       }
 
+      console.log('Found file:', file);
+
       // Check if the file is public or user is authorized
-      if (!file.isPublic && (file.userId.toString() !== userId)) {
+      if (!file.isPublic && file.userId.toString() !== userId) {
         return res.status(404).json({ error: 'Not found' });
       }
 
@@ -305,6 +308,7 @@ class FilesController {
       }
 
       if (!fs.existsSync(file.localPath)) {
+        console.error(`Local file path not found: ${file.localPath}`);
         return res.status(404).json({ error: 'Not found' });
       }
 
