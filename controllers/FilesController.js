@@ -2,8 +2,12 @@ import { ObjectId } from 'mongodb';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import mime from 'mime-types';
+import Bull from 'bull';
 import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
+
+// Create a Bull queue for file processing
+const fileQueue = new Bull('fileQueue');
 
 class FilesController {
   static async postUpload(req, res) {
@@ -98,6 +102,15 @@ class FilesController {
       };
 
       const result = await dbClient.db.collection('files').insertOne(newFile);
+
+      // Add a job to the Bull queue for generating thumbnails
+      if (type === 'image') {
+        await fileQueue.add({
+          userId,
+          fileId: result.insertedId.toString(),
+        });
+      }
+
       return res.status(201).json({
         id: result.insertedId,
         userId,
@@ -343,14 +356,26 @@ class FilesController {
       return res.status(400).json({ error: "A folder doesn't have content" });
     }
 
-    const realPath = size === 0 ? localPath : `${localPath}_${size}`;
+    // const realPath = size === 0 ? localPath : `${localPath}_${size}`;
 
     try {
+      let realPath;
+      if (size === 0) {
+        realPath = localPath;
+      } else {
+        realPath = `${localPath}_${size}`;
+        // Check if file exists before attempting to read it
+        if (!fs.existsSync(realPath)) {
+          return res.status(404).json({ error: 'File not found' });
+        }
+      }
+
       const dataFile = fs.readFileSync(realPath);
       const mimeType = mime.contentType(name) || 'application/octet-stream';
       res.setHeader('Content-Type', mimeType);
       return res.send(dataFile);
     } catch (error) {
+      console.error('Error retrieving file:', error);
       return res.status(404).json({ error: 'Not found' });
     }
   }
