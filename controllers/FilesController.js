@@ -40,7 +40,7 @@ class FilesController {
     }
 
     if (parentId !== 0) {
-      const parentFile = await dbClient.findFile({ _id: ObjectId(parentId) });
+      const parentFile = await dbClient.db.collection('files').findOne({ _id: ObjectId(parentId) });
       if (!parentFile) {
         return res.status(400).json({ error: 'Parent not found' });
       }
@@ -154,18 +154,46 @@ class FilesController {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     let parentId = req.query.parentId || '0';
-    parentId = parentId === '0' ? 0 : ObjectId(parentId);
+    console.log(`Received parentId: ${parentId}`); // Log the received parentId
+
+    if (parentId !== '0') {
+      try {
+        parentId = ObjectId(parentId);
+      } catch (error) {
+        console.error(`Invalid parentId: ${parentId}`); // Log invalid parentId conversion
+        return res.status(400).json({ error: 'Invalid parentId' });
+      }
+    } else {
+      parentId = 0;
+    }
+
+    console.log(`Processed parentId: ${parentId}`); // Log the processed parentId
 
     let page = parseInt(req.query.page, 10) || 0;
     page = page < 0 ? 0 : page;
 
-    const aggregationMatch = { $and: [{ parentId }] };
-    let aggregateData = [{ $match: aggregationMatch }, { $skip: page * 20 }, { $limit: 20 }];
-    if (parentId === 0) aggregateData = [{ $skip: page * 20 }, { $limit: 20 }];
+    const aggregationMatch = { userId: user._id };
+    if (parentId !== 0) aggregationMatch.$or = [{ parentId }, { parentId: parentId.toString() }];
+
+    console.log(`Aggregation match: ${JSON.stringify(aggregationMatch)}`); // Log the aggregation match object
 
     try {
-      const filesCursor = await dbClient.db.collection('files').aggregate(aggregateData);
+      const allFilesWithParentId = await dbClient.db.collection('files').find({
+        $or: [
+          { parentId },
+          { parentId: parentId.toString() },
+        ],
+      }).toArray();
+      console.log(`All files with parentId: ${JSON.stringify(allFilesWithParentId)}`); // Log all files with the specific parentId
+
+      const filesCursor = await dbClient.db.collection('files').aggregate([
+        { $match: aggregationMatch },
+        { $skip: page * 20 },
+        { $limit: 20 },
+      ]);
       const filesArray = await filesCursor.toArray();
+
+      console.log(`Fetched files: ${JSON.stringify(filesArray)}`); // Log fetched files
 
       const formattedFiles = filesArray.map((file) => ({
         id: file._id,
@@ -272,53 +300,58 @@ class FilesController {
   }
 
   static async getFile(req, res) {
-    const token = req.headers['x-token'];
+    const fileId = req.params.id || '';
+    const size = req.query.size || 0;
 
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const userId = await redisClient.get(`auth_${token}`);
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const fileId = req.params.id;
-    if (!fileId) {
+    let fileDocument;
+    try {
+      fileDocument = await dbClient.db.collection('files').findOne({ _id: ObjectId(fileId) });
+    } catch (error) {
       return res.status(404).json({ error: 'Not found' });
     }
 
+    if (!fileDocument) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const {
+      isPublic,
+      userId,
+      type,
+      localPath,
+      name,
+    } = fileDocument;
+
+    const token = req.header('X-Token') || null;
+    let owner = false;
+
+    if (token) {
+      const redisToken = await redisClient.get(`auth_${token}`);
+      if (redisToken) {
+        const user = await dbClient.db.collection('users').findOne({ _id: ObjectId(redisToken) });
+        if (user) {
+          owner = user._id.toString() === userId.toString();
+        }
+      }
+    }
+
+    if (!isPublic && !owner) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    if (type === 'folder') {
+      return res.status(400).json({ error: "A folder doesn't have content" });
+    }
+
+    const realPath = size === 0 ? localPath : `${localPath}_${size}`;
+
     try {
-      const file = await dbClient.db.collection('files').findOne({ _id: ObjectId(fileId) });
-
-      if (!file) {
-        console.error(`File not found for ID: ${fileId}`);
-        return res.status(404).json({ error: 'Not found' });
-      }
-
-      console.log('Found file:', file);
-
-      // Check if the file is public or user is authorized
-      if (!file.isPublic && file.userId.toString() !== userId) {
-        return res.status(404).json({ error: 'Not found' });
-      }
-
-      if (file.type === 'folder') {
-        return res.status(400).json({ error: "A folder doesn't have content" });
-      }
-
-      if (!fs.existsSync(file.localPath)) {
-        console.error(`Local file path not found: ${file.localPath}`);
-        return res.status(404).json({ error: 'Not found' });
-      }
-
-      const mimeType = mime.lookup(file.name) || 'application/octet-stream';
-      const fileContent = fs.readFileSync(file.localPath, 'utf-8');
-
-      return res.status(200).type(mimeType).send(fileContent);
+      const dataFile = fs.readFileSync(realPath);
+      const mimeType = mime.contentType(name) || 'application/octet-stream';
+      res.setHeader('Content-Type', mimeType);
+      return res.send(dataFile);
     } catch (error) {
-      console.error('Error fetching file data:', error);
-      return res.status(500).json({ error: 'Internal Server Error' });
+      return res.status(404).json({ error: 'Not found' });
     }
   }
 }
