@@ -53,4 +53,35 @@ fileQueue.process(async (job) => {
   }
 });
 
-export default fileQueue;
+// Create Bull queue instance for user-related tasks (e.g., sending welcome emails)
+const userQueue = new Bull('userQueue');
+
+// Process the user queue
+userQueue.process('sendWelcomeEmail', async (job) => {
+  const { userId } = job.data;
+
+  if (!userId) {
+    throw new Error('Missing userId');
+  }
+
+  const userObjectId = ObjectId(userId);
+
+  // Find the user in the database
+  const user = await dbClient.db.collection('users').findOne({ _id: userObjectId });
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  console.log(`Welcome ${user.email}!`);
+  // In a real application, you would send an actual email here
+  // using a service like SendGrid or Mailgun
+  // Example: sendWelcomeEmail(user.email);
+
+  return true; // Job completion
+});
+
+export default {
+  fileQueue,
+  userQueue,
+};
